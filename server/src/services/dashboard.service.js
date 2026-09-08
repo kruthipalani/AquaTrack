@@ -28,7 +28,7 @@ export const getDashboard = async (userId) => {
         }
     });
 
-    const completedCrops = await prisma.crop.count({
+    const completedCrops = await prisma.crop.findMany({
         where: {
             tank: {
                 site: {
@@ -36,8 +36,32 @@ export const getDashboard = async (userId) => {
                 }
             },
             status: "COMPLETED"
+        },
+        include: {
+            feedEntries: true,
+            harvests: true
         }
     });
+
+    let totalCompletedFeedWeight = 0;
+    let totalCompletedHarvestWeight = 0;
+
+    completedCrops.forEach(crop => {
+        const feedSum = (crop.feedEntries || []).reduce(
+            (sum, item) => sum + (item.quantity || 0),
+            0
+        );
+        const harvestSum = (crop.harvests || []).reduce(
+            (sum, item) => sum + (item.harvestWeight || item.production || 0),
+            0
+        );
+        totalCompletedFeedWeight += feedSum;
+        totalCompletedHarvestWeight += harvestSum;
+    });
+
+    const fcrRatio = totalCompletedHarvestWeight > 0
+        ? Number((totalCompletedFeedWeight / totalCompletedHarvestWeight).toFixed(2))
+        : 0;
 
     const feedEntries = await prisma.feedEntry.findMany({
         where: {
@@ -165,13 +189,12 @@ export const getDashboard = async (userId) => {
         },
 
         statistics: {
-
             totalTanks: tanks.length,
-
             activeCrops: activeCrops.length,
-
-            completedCrops
-
+            completedCrops: completedCrops.length,
+            fcrRatio,
+            totalCompletedFeedWeight,
+            totalCompletedHarvestWeight
         },
 
         finance: {

@@ -92,7 +92,7 @@ export const HarvestForm = ({
       shrimpCount: '',
       sellingPrice: '',
       buyerName: '',
-      harvestExpense: '0',
+      harvestExpense: '',
       notes: '',
     },
     mode: 'onTouched',
@@ -110,7 +110,7 @@ export const HarvestForm = ({
         shrimpCount: initialData.shrimpCount || '',
         sellingPrice: initialData.sellingPrice || '',
         buyerName: initialData.buyerName || '',
-        harvestExpense: initialData.harvestExpense !== undefined && initialData.harvestExpense !== null ? String(initialData.harvestExpense) : '0',
+        harvestExpense: initialData.harvestExpense !== undefined && initialData.harvestExpense !== null ? String(initialData.harvestExpense) : '',
         notes: initialData.notes || '',
       });
     } else {
@@ -122,7 +122,7 @@ export const HarvestForm = ({
         shrimpCount: '',
         sellingPrice: '',
         buyerName: '',
-        harvestExpense: '0',
+        harvestExpense: '',
         notes: '',
       });
     }
@@ -293,11 +293,12 @@ export const HarvestForm = ({
           label="Harvest Expense (₹)"
           type="number"
           step="1"
-          placeholder="0"
+          placeholder="Enter harvest expense..."
           required={true}
           icon={<IndianRupee className="w-4 h-4 text-primary" />}
           error={errors.harvestExpense?.message}
           disabled={isSubmitting}
+          className="no-spin [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0 [&::-webkit-inner-spin-button]:m-0"
           {...register('harvestExpense')}
         />
       </div>
