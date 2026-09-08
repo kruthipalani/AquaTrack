@@ -15,15 +15,17 @@ export const paymentModes = [
     "UPI"
 ];
 
-export const createExpenseSchema = z.object({
+const baseExpenseSchema = z.object({
 
-    tankId: z.string().min(1, "Tank is required"),
+    tankId: z.string().optional(),
+
+    siteId: z.string().optional(),
 
     category: z.enum(expenseCategories),
 
-    description: z.string().min(3),
+    description: z.string().optional(),
 
-    amount: z.number().positive(),
+    amount: z.number().positive("Amount must be greater than 0"),
 
     paymentMode: z.enum(paymentModes),
 
@@ -33,4 +35,42 @@ export const createExpenseSchema = z.object({
 
 });
 
-export const updateExpenseSchema = createExpenseSchema.partial();
+export const createExpenseSchema = baseExpenseSchema.superRefine((data, ctx) => {
+
+    if (data.category === "Seed Cost") {
+
+        if (!data.tankId || data.tankId.trim() === "") {
+
+            ctx.addIssue({
+
+                code: z.ZodIssueCode.custom,
+
+                path: ["tankId"],
+
+                message: "Tank is required for Seed Cost"
+
+            });
+
+        }
+
+    } else {
+
+        if (!data.siteId || data.siteId.trim() === "") {
+
+            ctx.addIssue({
+
+                code: z.ZodIssueCode.custom,
+
+                path: ["siteId"],
+
+                message: "Site is required"
+
+            });
+
+        }
+
+    }
+
+});
+
+export const updateExpenseSchema = baseExpenseSchema.partial();
