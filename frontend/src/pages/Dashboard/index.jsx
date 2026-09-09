@@ -93,6 +93,24 @@ export default function Dashboard() {
   const activeCropsCount = activeCropsList.length > 0 ? activeCropsList.length : (stats.activeCrops ?? 0);
   const completedCropsCount = completedCropsList.length > 0 ? completedCropsList.length : (stats.completedCrops ?? 0);
 
+  // Calculate FCR Ratio across all completed crops
+  const completedBatchesFcr = useMemo(() => {
+    let totalFeed = 0;
+    let totalHarvest = 0;
+    (completedCropsList || []).forEach((crop) => {
+      const feedSum = (crop.feedEntries || []).reduce((sum, f) => sum + (parseFloat(f.quantity) || 0), 0);
+      const cropHarvests = (harvests || []).filter((h) => String(h.cropId || h.crop?.id) === String(crop.id));
+      const fallbackHarvests = cropHarvests.length > 0 ? cropHarvests : (crop.harvests || []);
+      const harvestSum = fallbackHarvests.reduce((sum, h) => sum + (parseFloat(h.harvestWeight || h.production || 0)), 0);
+      totalFeed += feedSum;
+      totalHarvest += harvestSum;
+    });
+    if (totalHarvest > 0) {
+      return (totalFeed / totalHarvest).toFixed(2);
+    }
+    return (stats.fcrRatio !== undefined && stats.fcrRatio !== null) ? Number(stats.fcrRatio).toFixed(2) : '0.00';
+  }, [completedCropsList, harvests, stats.fcrRatio]);
+
   // SIMPLIFIED 3 CARDS ONLY (Total Tanks / Ponds, Active Crops, Completed Batches)
   const farmSummaryCards = [
     {
@@ -117,7 +135,8 @@ export default function Dashboard() {
       id: 'completedBatches',
       title: 'COMPLETED BATCHES',
       value: completedCropsCount,
-      description: `${completedCropsCount} batches completed`,
+      description: `${completedCropsCount} ${completedCropsCount === 1 ? 'batch' : 'batches'} completed`,
+      fcrValue: completedBatchesFcr,
       icon: CheckCircle2,
       bgColor: 'bg-cyan-50 text-cyan-700 border-cyan-200',
       action: () => setIsCompletedCropsReviewOpen(true),
@@ -245,6 +264,17 @@ export default function Dashboard() {
                     <Icon className="w-5 h-5" />
                   </div>
                 </div>
+
+                {stat.id === 'completedBatches' && (
+                  <div className="mt-2.5 flex items-center justify-between bg-cyan-50/80 px-2.5 py-1.5 rounded-lg border border-cyan-200/70">
+                    <span className="text-[10px] font-bold uppercase text-cyan-900 tracking-wider">
+                      FCR Ratio
+                    </span>
+                    <span className="text-xs font-extrabold text-cyan-800">
+                      {loading ? '...' : (stat.fcrValue || '0.00')}
+                    </span>
+                  </div>
+                )}
 
                 <div className="mt-3.5 pt-2.5 border-t border-border/50 flex items-center justify-between text-xs text-text-secondary">
                   <span className="truncate font-medium">{stat.description}</span>
@@ -626,6 +656,24 @@ export default function Dashboard() {
                 // Net Profit = Total Revenue - Total Crop Expenses
                 const netProfit = Math.round(totalRevenue - totalCropExpenses);
 
+                // Cumulative Feed Weight (Sum of feed quantities for this completed crop)
+                const cropFeedEntries = crop.feedEntries || [];
+                const cumulativeFeedWeight = cropFeedEntries.reduce(
+                  (acc, f) => acc + (parseFloat(f.quantity) || 0),
+                  0
+                );
+
+                // Total Harvest Weight (Sum of harvest weights for this completed crop)
+                const totalHarvestWeight = fallbackHarvests.reduce(
+                  (acc, h) => acc + (parseFloat(h.harvestWeight || h.production || 0)),
+                  0
+                );
+
+                // FCR Ratio = Cumulative Feed Weight / Total Harvest Weight
+                const batchFcrRatio = totalHarvestWeight > 0
+                  ? (cumulativeFeedWeight / totalHarvestWeight).toFixed(2)
+                  : '0.00';
+
                 return (
                   <div
                     key={crop.id}
@@ -697,7 +745,7 @@ export default function Dashboard() {
                       <span className="text-[10px] font-bold uppercase text-cyan-900 block tracking-wider">
                         Financial & Harvest Details
                       </span>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center">
                         {/* 1. SHRIMP COUNT */}
                         <div className="bg-surface p-2.5 rounded-lg border border-cyan-100 flex flex-col justify-center">
                           <span className="text-[10px] font-semibold text-text-secondary uppercase block">
@@ -708,7 +756,17 @@ export default function Dashboard() {
                           </span>
                         </div>
 
-                        {/* 2. TOTAL CROP EXPENSES */}
+                        {/* 2. FCR RATIO */}
+                        <div className="bg-surface p-2.5 rounded-lg border border-cyan-200 flex flex-col justify-center bg-cyan-50/60" title={`Cumulative Feed: ${cumulativeFeedWeight} kg / Total Harvest: ${totalHarvestWeight} kg`}>
+                          <span className="text-[10px] font-bold text-cyan-900 uppercase block tracking-wider">
+                            FCR Ratio
+                          </span>
+                          <span className="font-extrabold text-sm text-cyan-800 mt-0.5">
+                            {batchFcrRatio}
+                          </span>
+                        </div>
+
+                        {/* 3. TOTAL CROP EXPENSES */}
                         <div className="bg-surface p-2.5 rounded-lg border border-cyan-100 flex flex-col justify-center" title="Includes Feed, Medicines, General Expenses, Pond Lease & Harvest Expenses">
                           <span className="text-[10px] font-semibold text-text-secondary uppercase block">
                             Total Expenses
@@ -718,7 +776,7 @@ export default function Dashboard() {
                           </span>
                         </div>
 
-                        {/* 3. ALLOCATED POND LEASE */}
+                        {/* 4. ALLOCATED POND LEASE */}
                         <div className="bg-surface p-2.5 rounded-lg border border-cyan-100 flex flex-col justify-center">
                           <span className="text-[10px] font-semibold text-text-secondary uppercase block">
                             Allocated Pond Lease
@@ -730,7 +788,7 @@ export default function Dashboard() {
                           </span>
                         </div>
 
-                        {/* 4. NET PROFIT */}
+                        {/* 5. NET PROFIT */}
                         <div className="bg-surface p-2.5 rounded-lg border border-cyan-100 flex flex-col justify-center">
                           <span className="text-[10px] font-semibold text-text-secondary uppercase block">
                             Net Profit

@@ -69,6 +69,17 @@
   .aqua-scrollbar::-webkit-scrollbar-thumb:hover {
     background: #94A3B8;
   }
+
+  /* Hide Number Input Spinner Arrows Utility */
+  .no-spin::-webkit-outer-spin-button,
+  .no-spin::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  .no-spin {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
 }
 
 /* Print Stylesheet for Reports & Full Document Export */

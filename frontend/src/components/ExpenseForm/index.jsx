@@ -14,15 +14,19 @@ import {
   PAYMENT_MODE_OPTIONS
 } from '../../constants/expenseData';
 import { useTanks } from '../../context/TankContext';
+import { useSites } from '../../context/SiteContext';
 
-// Zod Validation Schema matching frontend required fields
+// Zod Validation Schema with conditional rules for Tank (Seed Cost) vs Site (all other 6 categories)
 const expenseSchema = z.object({
-  tankId: z
-    .string()
-    .min(1, 'Please select a Tank / Pond'),
   category: z
     .string()
     .min(1, 'Please select an Expense Category'),
+  tankId: z
+    .string()
+    .optional(),
+  siteId: z
+    .string()
+    .optional(),
   amount: z
     .coerce
     .number({ invalid_type_error: 'Amount must be a number' })
@@ -36,12 +40,31 @@ const expenseSchema = z.object({
   notes: z
     .string()
     .optional(),
+}).superRefine((data, ctx) => {
+  if (data.category === 'Seed Cost') {
+    if (!data.tankId || data.tankId.trim() === '') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['tankId'],
+        message: 'Please select a Tank',
+      });
+    }
+  } else {
+    if (!data.siteId || data.siteId.trim() === '') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['siteId'],
+        message: 'Please select a Site',
+      });
+    }
+  }
 });
 
 /**
- * Reusable ExpenseForm component with dynamic Tank dropdown from TankContext.
- * Displays user-essential fields ONLY: tankId, category, amount, paymentMode, date, notes.
- * Tank display NEVER includes water source (e.g. Borewell).
+ * Reusable ExpenseForm component.
+ * Dynamic dropdown selection based on Expense Category:
+ * - Category === "Seed Cost" -> Tank Level (Choose tank...)
+ * - Category === any other 6 categories -> Site Level (Choose site...)
  */
 export const ExpenseForm = ({
   initialData = null,
@@ -49,7 +72,8 @@ export const ExpenseForm = ({
   onCancel,
   isSubmitting = false,
 }) => {
-  const { tanks } = useTanks();
+  const { tanks = [] } = useTanks();
+  const { sites = [] } = useSites();
   const isEditing = Boolean(initialData?.id);
 
   // Clean tank labels so water source is NEVER exposed
@@ -63,16 +87,27 @@ export const ExpenseForm = ({
     };
   });
 
+  // Site options for site-level categories
+  const siteSelectOptions = sites.map((site) => {
+    const locationSuffix = site.location ? ` (${site.location})` : '';
+    return {
+      value: site.id,
+      label: `${site.siteName}${locationSuffix}`,
+    };
+  });
+
   const {
     register,
     handleSubmit,
     reset,
+    watch,
     formState: { errors },
   } = useForm({
     resolver: zodResolver(expenseSchema),
     defaultValues: {
-      tankId: '',
       category: '',
+      tankId: '',
+      siteId: '',
       amount: '',
       paymentMode: '',
       date: new Date().toISOString().split('T')[0],
@@ -81,11 +116,15 @@ export const ExpenseForm = ({
     mode: 'onTouched',
   });
 
+  const selectedCategory = watch('category');
+  const isSeedCost = selectedCategory === 'Seed Cost';
+
   useEffect(() => {
     if (initialData) {
       reset({
-        tankId: initialData.tankId || '',
         category: initialData.category || '',
+        tankId: initialData.tankId || '',
+        siteId: initialData.siteId || initialData.crop?.tank?.siteId || '',
         amount: initialData.amount || '',
         paymentMode: initialData.paymentMode || '',
         date: initialData.date || new Date().toISOString().split('T')[0],
@@ -95,13 +134,7 @@ export const ExpenseForm = ({
   }, [initialData, reset]);
 
   const handleFormSubmit = (data) => {
-    const selectedTankObj = tanks.find((t) => t.id === data.tankId);
-    const rawTankName = selectedTankObj ? selectedTankObj.name : 'Selected Pond';
-    const cleanTankName = rawTankName.replace(/\s*\([^)]*\)/g, '').trim();
-
-    // Backend Request Model: { tankId, category, description, amount, paymentMode, date, notes }
     const expensePayload = {
-      tankId: data.tankId,
       category: data.category,
       description: data.category, // Internally populate description using category for API compatibility
       amount: parseFloat(data.amount),
@@ -110,11 +143,19 @@ export const ExpenseForm = ({
       notes: data.notes ? data.notes.trim() : '',
     };
 
+    if (data.category === 'Seed Cost') {
+      expensePayload.tankId = data.tankId;
+      const selectedTankObj = tanks.find((t) => t.id === data.tankId);
+      const rawTankName = selectedTankObj ? (selectedTankObj.name || selectedTankObj.tankName) : 'Selected Tank';
+      expensePayload.tankName = rawTankName.replace(/\s*\([^)]*\)/g, '').trim();
+    } else {
+      expensePayload.siteId = data.siteId;
+      const selectedSiteObj = sites.find((s) => s.id === data.siteId);
+      expensePayload.siteName = selectedSiteObj ? selectedSiteObj.siteName : 'Selected Site';
+    }
+
     if (onSubmit) {
-      onSubmit({
-        ...expensePayload,
-        tankName: cleanTankName,
-      });
+      onSubmit(expensePayload);
     }
   };
 
@@ -127,15 +168,6 @@ export const ExpenseForm = ({
         </h4>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Select
-            label="Tank"
-            required={true}
-            placeholder="Choose tank..."
-            options={tankSelectOptions}
-            error={errors.tankId?.message}
-            {...register('tankId')}
-          />
-
-          <Select
             label="Expense Category"
             required={true}
             placeholder="Select category..."
@@ -143,6 +175,26 @@ export const ExpenseForm = ({
             error={errors.category?.message}
             {...register('category')}
           />
+
+          {isSeedCost ? (
+            <Select
+              label="Tank"
+              required={true}
+              placeholder="Choose tank..."
+              options={tankSelectOptions}
+              error={errors.tankId?.message}
+              {...register('tankId')}
+            />
+          ) : (
+            <Select
+              label="Choose Site"
+              required={true}
+              placeholder="Choose site..."
+              options={siteSelectOptions}
+              error={errors.siteId?.message}
+              {...register('siteId')}
+            />
+          )}
         </div>
       </div>
 

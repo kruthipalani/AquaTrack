@@ -2,6 +2,7 @@ import prisma from "../config/prisma.js";
 
 import {
     getUserFarm,
+    getUserSite,
     getUserTank,
     getActiveCrop
 } from "../utils/farm.helpers.js";
@@ -16,6 +17,9 @@ import {
  *
  * Categories and payment modes are validated
  * by expense.validation.js.
+ *
+ * Seed Cost -> Tank level (direct to active crop of selected tank)
+ * Other 6 Categories -> Site level (divided equally among active crops on selected site)
  */
 export const createExpense = async (
     userId,
@@ -25,63 +29,112 @@ export const createExpense = async (
     const farm =
         await getUserFarm(userId);
 
+    /* ---------------------------------------------
+       1. SEED COST — TANK LEVEL
+    ----------------------------------------------*/
+    if (expenseData.category === "Seed Cost") {
 
-    const tank =
-        await getUserTank(
+        const tank =
+            await getUserTank(
+                farm.id,
+                expenseData.tankId
+            );
 
+        const crop =
+            await getActiveCrop(
+                tank.id
+            );
+
+        const expense =
+            await prisma.expense.create({
+                data: {
+                    cropId:
+                        crop.id,
+                    category:
+                        expenseData.category,
+                    description:
+                        expenseData.description || expenseData.category,
+                    amount:
+                        expenseData.amount,
+                    paymentMode:
+                        expenseData.paymentMode,
+                    receipt:
+                        null,
+                    date:
+                        new Date(
+                            expenseData.date
+                        ),
+                    notes:
+                        expenseData.notes ??
+                        null
+                }
+            });
+
+        return expense;
+    }
+
+    /* ---------------------------------------------
+       2. OTHER SIX CATEGORIES — SITE LEVEL
+    ----------------------------------------------*/
+    const site =
+        await getUserSite(
             farm.id,
-
-            expenseData.tankId
-
+            expenseData.siteId
         );
 
-
-    const crop =
-        await getActiveCrop(
-
-            tank.id
-
-        );
-
-
-    const expense =
-        await prisma.expense.create({
-
-            data: {
-
-                cropId:
-                    crop.id,
-
-                category:
-                    expenseData.category,
-
-                description:
-                    expenseData.description,
-
-                amount:
-                    expenseData.amount,
-
-                paymentMode:
-                    expenseData.paymentMode,
-
-                receipt:
-                    null,
-
-                date:
-                    new Date(
-                        expenseData.date
-                    ),
-
-                notes:
-                    expenseData.notes ??
-                    null
-
+    const activeCrops =
+        await prisma.crop.findMany({
+            where: {
+                status: "ACTIVE",
+                tank: {
+                    siteId: site.id
+                }
+            },
+            include: {
+                tank: true
             }
-
         });
 
+    if (!activeCrops || activeCrops.length === 0) {
+        throw new Error(
+            "No active crop available for this site. Site-level expense cannot be allocated."
+        );
+    }
 
-    return expense;
+    const allocatedAmount = expenseData.amount / activeCrops.length;
+
+    const createdExpenses = [];
+
+    for (const crop of activeCrops) {
+        const exp =
+            await prisma.expense.create({
+                data: {
+                    cropId:
+                        crop.id,
+                    category:
+                        expenseData.category,
+                    description:
+                        expenseData.description || expenseData.category,
+                    amount:
+                        allocatedAmount,
+                    paymentMode:
+                        expenseData.paymentMode,
+                    receipt:
+                        null,
+                    date:
+                        new Date(
+                            expenseData.date
+                        ),
+                    notes:
+                        expenseData.notes ??
+                        null
+                }
+            });
+
+        createdExpenses.push(exp);
+    }
+
+    return createdExpenses[0];
 
 };
 

@@ -86,7 +86,8 @@ export const ExpenseProvider = ({ children }) => {
 
   const addExpense = async (newExpenseData) => {
     const payload = {
-      tankId: newExpenseData.tankId,
+      ...(newExpenseData.tankId ? { tankId: newExpenseData.tankId } : {}),
+      ...(newExpenseData.siteId ? { siteId: newExpenseData.siteId } : {}),
       category: newExpenseData.category,
       description: newExpenseData.description || `${newExpenseData.category} expense`,
       amount: parseFloat(newExpenseData.amount),
@@ -96,18 +97,9 @@ export const ExpenseProvider = ({ children }) => {
     };
 
     const res = await expenseService.createExpense(payload);
-    const created = res.data || res;
-    const normalized = {
-      ...created,
-      id: String(created.id),
-      tankId: String(created.crop?.tankId || created.crop?.tank?.id || newExpenseData.tankId || ''),
-      date: created.date ? new Date(created.date).toISOString().split('T')[0] : payload.date,
-      paymentModeDisplay: normalizePaymentModeForUi(created.paymentMode || payload.paymentMode),
-      tankName: newExpenseData.tankName || 'Tank',
-    };
-    setExpenses((prev) => [normalized, ...prev]);
-    emitDataMutation('EXPENSE', 'CREATE', normalized);
-    return normalized;
+    await fetchExpenses(true);
+    emitDataMutation('EXPENSE', 'CREATE', res);
+    return res;
   };
 
   const updateExpense = async (id, updatedData) => {
