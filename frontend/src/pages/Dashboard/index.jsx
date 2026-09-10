@@ -111,6 +111,8 @@ export default function Dashboard() {
     return (stats.fcrRatio !== undefined && stats.fcrRatio !== null) ? Number(stats.fcrRatio).toFixed(2) : '0.00';
   }, [completedCropsList, harvests, stats.fcrRatio]);
 
+  const isInitialLoading = loading && !dashboardData && tanks.length === 0 && crops.length === 0;
+
   // SIMPLIFIED 3 CARDS ONLY (Total Tanks / Ponds, Active Crops, Completed Batches)
   const farmSummaryCards = [
     {
@@ -235,7 +237,7 @@ export default function Dashboard() {
             Farm Summary
           </h2>
           <span className="text-[11px] text-text-secondary font-medium">
-            {loading ? 'Loading...' : 'Operational Overview'}
+            Operational Overview
           </span>
         </div>
 
@@ -256,7 +258,11 @@ export default function Dashboard() {
                       {stat.title}
                     </span>
                     <span className="text-3xl font-extrabold text-text-primary mt-1.5 tracking-tight">
-                      {loading ? '...' : stat.value}
+                      {isInitialLoading ? (
+                        <span className="inline-block w-12 h-7 bg-slate-200/80 dark:bg-slate-700/80 rounded animate-pulse" />
+                      ) : (
+                        stat.value
+                      )}
                     </span>
                   </div>
 
@@ -264,17 +270,6 @@ export default function Dashboard() {
                     <Icon className="w-5 h-5" />
                   </div>
                 </div>
-
-                {stat.id === 'completedBatches' && (
-                  <div className="mt-2.5 flex items-center justify-between bg-cyan-50/80 px-2.5 py-1.5 rounded-lg border border-cyan-200/70">
-                    <span className="text-[10px] font-bold uppercase text-cyan-900 tracking-wider">
-                      FCR Ratio
-                    </span>
-                    <span className="text-xs font-extrabold text-cyan-800">
-                      {loading ? '...' : (stat.fcrValue || '0.00')}
-                    </span>
-                  </div>
-                )}
 
                 <div className="mt-3.5 pt-2.5 border-t border-border/50 flex items-center justify-between text-xs text-text-secondary">
                   <span className="truncate font-medium">{stat.description}</span>
