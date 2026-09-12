@@ -10,7 +10,6 @@ export const getDashboard = async (userId) => {
 
     const [
         totalTanks,
-        allTanks,
         activeCrops,
         completedCrops,
         feedAgg,
@@ -20,29 +19,6 @@ export const getDashboard = async (userId) => {
     ] = await Promise.all([
         prisma.tank.count({
             where: farmWhere
-        }),
-        prisma.tank.findMany({
-            where: farmWhere,
-            select: {
-                id: true,
-                tankName: true,
-                crops: {
-                    select: {
-                        id: true,
-                        cropName: true,
-                        batchNumber: true,
-                        status: true,
-                        feedEntries: {
-                            select: {
-                                id: true,
-                                date: true,
-                                quantity: true
-                            }
-                        }
-                    }
-                }
-            },
-            orderBy: { createdAt: 'asc' }
         }),
         prisma.crop.findMany({
             where: {
@@ -146,68 +122,6 @@ export const getDashboard = async (userId) => {
         };
     });
 
-    // Helper for strict today date matching (Daily Feed Intake ONLY)
-    const isStrictlyToday = (dateInput) => {
-        if (!dateInput) return false;
-        const now = new Date();
-        const todayLocalStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-        const todayUTCStr = now.toISOString().split('T')[0];
-
-        let inputStr = '';
-        if (typeof dateInput === 'string') {
-            inputStr = dateInput.split('T')[0];
-        } else if (dateInput instanceof Date) {
-            const dLocal = `${dateInput.getFullYear()}-${String(dateInput.getMonth() + 1).padStart(2, '0')}-${String(dateInput.getDate()).padStart(2, '0')}`;
-            const dUTC = dateInput.toISOString().split('T')[0];
-            return dLocal === todayLocalStr || dUTC === todayUTCStr || dLocal === todayUTCStr || dUTC === todayLocalStr;
-        }
-
-        if (inputStr === todayLocalStr || inputStr === todayUTCStr) return true;
-
-        try {
-            const d = new Date(dateInput);
-            if (!isNaN(d.getTime())) {
-                const dLocal = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                const dUTC = d.toISOString().split('T')[0];
-                return dLocal === todayLocalStr || dUTC === todayUTCStr || dLocal === todayUTCStr || dUTC === todayLocalStr;
-            }
-        } catch (e) {}
-
-        return false;
-    };
-
-    const tankFeedSummary = allTanks.map(tank => {
-        const activeCrop = (tank.crops || []).find(c => c.status === "ACTIVE");
-        
-        // Sum feed entries ONLY for the active crop (cumulative for current crop)
-        let currentCropTotalFeedKg = 0;
-        if (activeCrop && activeCrop.feedEntries) {
-            currentCropTotalFeedKg = activeCrop.feedEntries.reduce(
-                (sum, entry) => sum + (parseFloat(entry.quantity) || 0),
-                0
-            );
-        }
-
-        // Sum feed entries registered for this tank ONLY on today's date (daily feed intake)
-        let todaysFeedKg = 0;
-        (tank.crops || []).forEach(crop => {
-            (crop.feedEntries || []).forEach(entry => {
-                if (isStrictlyToday(entry.date)) {
-                    todaysFeedKg += (parseFloat(entry.quantity) || 0);
-                }
-            });
-        });
-
-        return {
-            tankId: tank.id,
-            tankName: tank.tankName,
-            hasActiveCrop: Boolean(activeCrop),
-            activeCropName: activeCrop ? (activeCrop.cropName || activeCrop.batchNumber ? `Batch #${activeCrop.batchNumber || activeCrop.cropName}` : 'Active Crop') : null,
-            todaysFeedKg: Number(todaysFeedKg.toFixed(2)),
-            currentCropTotalFeedKg: Number(currentCropTotalFeedKg.toFixed(2))
-        };
-    });
-
     return {
         farm: {
             id: farm.id,
@@ -236,7 +150,6 @@ export const getDashboard = async (userId) => {
             medicines: medicineAgg._count._all || 0,
             harvests: harvestAgg._count._all || 0
         },
-        activeCropOverview: cropOverview,
-        tankFeedSummary
+        activeCropOverview: cropOverview
     };
 };

@@ -21,27 +21,16 @@ export const FeedProvider = ({ children }) => {
     try {
       const res = await feedService.getFeeds();
       const list = res.data || res || [];
-      const normalized = (Array.isArray(list) ? list : []).map((f) => {
-        const cropObj = f.crop || {};
-        const tankObj = cropObj.tank || {};
-        const tankId = String(f.tankId || cropObj.tankId || tankObj.id || '');
-        const cropId = String(f.cropId || cropObj.id || '');
-        const rawDate = f.date || f.feedingDate;
-        const feedingDate = rawDate ? (typeof rawDate === 'string' ? rawDate.split('T')[0] : new Date(rawDate).toISOString().split('T')[0]) : '';
-
-        return {
-          ...f,
-          id: String(f.id),
-          tankId,
-          cropId,
-          date: rawDate,
-          feedingDate,
-          quantityKg: parseFloat(f.quantity ?? f.quantityKg ?? 0),
-          feedCost: parseFloat(f.totalCost ?? f.feedCost ?? (f.quantity * f.costPerKg) ?? 0),
-          tankName: tankObj.tankName || f.tankName || 'Tank',
-          cropName: cropObj.cropName || f.cropName || 'Crop',
-        };
-      });
+      const normalized = (Array.isArray(list) ? list : []).map((f) => ({
+        ...f,
+        id: String(f.id),
+        tankId: String(f.crop?.tankId || f.crop?.tank?.id || f.tankId || ''),
+        feedingDate: f.date ? new Date(f.date).toISOString().split('T')[0] : f.feedingDate,
+        quantityKg: f.quantity ?? f.quantityKg,
+        feedCost: f.totalCost ?? f.feedCost ?? (f.quantity * f.costPerKg),
+        tankName: f.crop?.tank?.tankName || f.tankName || 'Tank',
+        cropName: f.crop?.cropName || f.cropName || 'Crop',
+      }));
       setFeedLogs(normalized);
     } catch (err) {
       console.error('Error fetching feed logs:', err);
@@ -86,19 +75,12 @@ export const FeedProvider = ({ children }) => {
 
     const res = await feedService.createFeed(payload);
     const created = res.data || res;
-
-    const rawDate = created.date || payload.date;
-    const feedingDate = typeof rawDate === 'string' ? rawDate.split('T')[0] : new Date(rawDate).toISOString().split('T')[0];
-
     const normalized = {
       ...created,
       id: String(created.id),
-      tankId: String(newFeedData.tankId || created.crop?.tankId || ''),
-      cropId: String(created.cropId || created.crop?.id || ''),
-      date: rawDate,
-      feedingDate,
-      quantityKg: parseFloat(created.quantity ?? payload.quantity),
-      feedCost: parseFloat(created.totalCost ?? (payload.quantity * payload.costPerKg)),
+      feedingDate: created.date ? new Date(created.date).toISOString().split('T')[0] : payload.date,
+      quantityKg: created.quantity,
+      feedCost: created.totalCost,
       tankName: newFeedData.tankName || 'Tank',
       cropName: newFeedData.cropName || 'Crop',
     };
@@ -124,19 +106,12 @@ export const FeedProvider = ({ children }) => {
 
     const res = await feedService.updateFeed(targetId, payload);
     const updated = res.data || res;
-
-    const rawDate = updated.date || updatedData.feedingDate || updatedData.date;
-    const feedingDate = rawDate ? (typeof rawDate === 'string' ? rawDate.split('T')[0] : new Date(rawDate).toISOString().split('T')[0]) : '';
-
     const normalized = {
       ...updated,
       id: targetId,
-      tankId: String(updated.crop?.tankId || updated.crop?.tank?.id || updatedData.tankId || ''),
-      cropId: String(updated.cropId || updated.crop?.id || ''),
-      date: rawDate,
-      feedingDate,
-      quantityKg: parseFloat(updated.quantity ?? updatedData.quantityKg ?? 0),
-      feedCost: parseFloat(updated.totalCost ?? updatedData.feedCost ?? 0),
+      feedingDate: updated.date ? new Date(updated.date).toISOString().split('T')[0] : updatedData.feedingDate,
+      quantityKg: updated.quantity ?? updatedData.quantityKg,
+      feedCost: updated.totalCost ?? updatedData.feedCost,
       tankName: updated.crop?.tank?.tankName || 'Tank',
       cropName: updated.crop?.cropName || 'Crop',
     };

@@ -32,7 +32,6 @@ import { useTanks } from '../../context/TankContext';
 import { useCrops } from '../../context/CropContext';
 import { usePondLeases } from '../../context/PondLeaseContext';
 import { useHarvests } from '../../context/HarvestContext';
-import { useFeed } from '../../context/FeedContext';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -45,7 +44,6 @@ export default function Dashboard() {
   const { crops = [], loading: cropsLoading } = useCrops();
   const { leases = [], loading: leasesLoading } = usePondLeases();
   const { harvests = [] } = useHarvests();
-  const { feedLogs = [] } = useFeed();
 
   // Review Modals State
   const [isTankReviewOpen, setIsTankReviewOpen] = useState(false);
@@ -112,91 +110,6 @@ export default function Dashboard() {
     }
     return (stats.fcrRatio !== undefined && stats.fcrRatio !== null) ? Number(stats.fcrRatio).toFixed(2) : '0.00';
   }, [completedCropsList, harvests, stats.fcrRatio]);
-
-  // Tank-wise Feed Intake Summary computation (combines context & backend fallback)
-  const computedTankFeedSummary = useMemo(() => {
-    const isStrictlyToday = (dateInput) => {
-      if (!dateInput) return false;
-      const now = new Date();
-      const todayLocalStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-      const todayUTCStr = now.toISOString().split('T')[0];
-
-      let inputStr = '';
-      if (typeof dateInput === 'string') {
-        inputStr = dateInput.split('T')[0];
-      } else if (dateInput instanceof Date) {
-        const dLocal = `${dateInput.getFullYear()}-${String(dateInput.getMonth() + 1).padStart(2, '0')}-${String(dateInput.getDate()).padStart(2, '0')}`;
-        const dUTC = dateInput.toISOString().split('T')[0];
-        return dLocal === todayLocalStr || dUTC === todayUTCStr || dLocal === todayUTCStr || dUTC === todayLocalStr;
-      }
-
-      if (inputStr === todayLocalStr || inputStr === todayUTCStr) return true;
-
-      try {
-        const d = new Date(dateInput);
-        if (!isNaN(d.getTime())) {
-          const dLocal = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-          const dUTC = d.toISOString().split('T')[0];
-          return dLocal === todayLocalStr || dUTC === todayUTCStr || dLocal === todayUTCStr || dUTC === todayLocalStr;
-        }
-      } catch (e) {}
-
-      return false;
-    };
-
-    if (tanks && tanks.length > 0) {
-      return tanks.map((tank) => {
-        const tankIdStr = String(tank.id);
-        const rawName = tank.tankName || tank.name || 'Tank';
-        const cleanName = rawName.replace(/\s*\([^)]*\)/g, '').trim();
-
-        // Active crop for this specific tank
-        const activeCrop = (crops || []).find(
-          (c) => String(c.tankId || c.tank?.id) === tankIdStr && (c.rawStatus === 'ACTIVE' || c.status === 'Active' || c.status === 'ACTIVE')
-        );
-
-        // 1. TODAY'S FEED INTAKE (DAILY ONLY): Sum feed entries registered for this tank on TODAY'S DATE ONLY
-        const todaysFeedKg = (feedLogs || []).reduce((sum, log) => {
-          const logTankId = String(log.tankId || log.crop?.tankId || log.crop?.tank?.id || '');
-          if (logTankId === tankIdStr) {
-            const logDate = log.feedingDate || log.date;
-            if (isStrictlyToday(logDate)) {
-              return sum + (parseFloat(log.quantityKg || log.quantity) || 0);
-            }
-          }
-          return sum;
-        }, 0);
-
-        // 2. TOTAL FEED – CURRENT CROP (CUMULATIVE): Sum ALL feed entries for the current active crop of this tank
-        let currentCropTotalFeedKg = 0;
-        if (activeCrop) {
-          const activeCropIdStr = String(activeCrop.id);
-          currentCropTotalFeedKg = (feedLogs || []).reduce((sum, log) => {
-            const logCropId = String(log.cropId || log.crop?.id || '');
-            if (logCropId === activeCropIdStr) {
-              return sum + (parseFloat(log.quantityKg || log.quantity) || 0);
-            }
-            return sum;
-          }, 0);
-        }
-
-        return {
-          tankId: tankIdStr,
-          tankName: cleanName,
-          hasActiveCrop: Boolean(activeCrop),
-          activeCropName: activeCrop ? (activeCrop.cropName || activeCrop.batchNumber ? `Batch #${activeCrop.batchNumber || activeCrop.cropName}` : 'Active Crop') : null,
-          todaysFeedKg: Number(todaysFeedKg.toFixed(2)),
-          currentCropTotalFeedKg: Number(currentCropTotalFeedKg.toFixed(2)),
-        };
-      });
-    }
-
-    return (dashboardData?.tankFeedSummary || []).map((item) => ({
-      ...item,
-      todaysFeedKg: Number((item.todaysFeedKg || 0).toFixed(2)),
-      currentCropTotalFeedKg: Number((item.currentCropTotalFeedKg || 0).toFixed(2)),
-    }));
-  }, [tanks, crops, feedLogs, dashboardData?.tankFeedSummary]);
 
   const isInitialLoading = loading && !dashboardData && tanks.length === 0 && crops.length === 0;
 
@@ -367,81 +280,6 @@ export default function Dashboard() {
               </Card>
             );
           })}
-        </div>
-
-        {/* Dedicated TANK-WISE FEED INTAKE Section */}
-        <div className="mt-5 bg-surface border border-border/80 rounded-2xl p-5 shadow-2xs space-y-4">
-          <div className="flex items-center justify-between border-b border-border/60 pb-3">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-teal-50 text-teal-700 flex items-center justify-center font-bold">
-                <UtensilsCrossed className="w-4 h-4" />
-              </div>
-              <div>
-                <h3 className="font-bold text-xs sm:text-sm text-text-primary uppercase tracking-wider">
-                  FEED INTAKE
-                </h3>
-                <span className="text-[11px] text-text-secondary">
-                  Tank-wise daily & current crop feed consumption
-                </span>
-              </div>
-            </div>
-            <Badge variant="primary" size="sm" className="bg-teal-50 text-teal-700 border-teal-200">
-              Tank-Wise Data
-            </Badge>
-          </div>
-
-          {computedTankFeedSummary.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-              {computedTankFeedSummary.map((item) => (
-                <div
-                  key={item.tankId}
-                  className="p-4 rounded-xl bg-background border border-border/80 shadow-2xs hover:border-primary/40 transition-all space-y-3"
-                >
-                  <div className="flex items-center justify-between border-b border-border/60 pb-2">
-                    <div className="flex items-center gap-1.5">
-                      <Waves className="w-4 h-4 text-primary shrink-0" />
-                      <h4 className="font-extrabold text-base text-text-primary tracking-tight">
-                        {item.tankName}
-                      </h4>
-                    </div>
-                    {item.hasActiveCrop ? (
-                      <Badge variant="success" size="sm">
-                        {item.activeCropName || 'Active Crop'}
-                      </Badge>
-                    ) : (
-                      <Badge variant="neutral" size="sm">
-                        No Active Crop
-                      </Badge>
-                    )}
-                  </div>
-
-                  <div className="space-y-2 text-xs">
-                    <div className="flex items-center justify-between py-1.5 px-3 rounded-lg bg-surface border border-border/50">
-                      <span className="font-medium text-text-secondary">
-                        Today's Feed Intake
-                      </span>
-                      <span className="font-extrabold text-sm text-teal-700">
-                        {item.todaysFeedKg} kg
-                      </span>
-                    </div>
-
-                    <div className="flex items-center justify-between py-1.5 px-3 rounded-lg bg-surface border border-border/50">
-                      <span className="font-medium text-text-secondary">
-                        Total Feed – Current Crop
-                      </span>
-                      <span className="font-extrabold text-sm text-emerald-800">
-                        {item.currentCropTotalFeedKg} kg
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-6 text-xs text-text-secondary italic">
-              No tank feed records available.
-            </div>
-          )}
         </div>
       </div>
 
