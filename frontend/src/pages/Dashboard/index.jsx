@@ -32,6 +32,7 @@ import { useTanks } from '../../context/TankContext';
 import { useCrops } from '../../context/CropContext';
 import { usePondLeases } from '../../context/PondLeaseContext';
 import { useHarvests } from '../../context/HarvestContext';
+import { useFeed } from '../../context/FeedContext';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -44,6 +45,7 @@ export default function Dashboard() {
   const { crops = [], loading: cropsLoading } = useCrops();
   const { leases = [], loading: leasesLoading } = usePondLeases();
   const { harvests = [] } = useHarvests();
+  const { feedLogs = [] } = useFeed();
 
   // Review Modals State
   const [isTankReviewOpen, setIsTankReviewOpen] = useState(false);
@@ -87,6 +89,132 @@ export default function Dashboard() {
   const completedCropsList = useMemo(() => {
     return (crops || []).filter((c) => c.rawStatus === 'COMPLETED' || c.status === 'Completed' || c.status === 'COMPLETED');
   }, [crops]);
+
+  // Tank-wise Active Crop & Feed Summary Table Data (Active Crops Only)
+  const activeCropTableData = useMemo(() => {
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    const yesterdayObj = new Date(now);
+    yesterdayObj.setDate(now.getDate() - 1);
+    const yesterdayStr = `${yesterdayObj.getFullYear()}-${String(yesterdayObj.getMonth() + 1).padStart(2, '0')}-${String(yesterdayObj.getDate()).padStart(2, '0')}`;
+
+    const toYMD = (dateVal) => {
+      if (!dateVal) return '';
+      if (typeof dateVal === 'string' && dateVal.length >= 10 && dateVal.includes('-')) {
+        return dateVal.substring(0, 10);
+      }
+      try {
+        const d = new Date(dateVal);
+        if (isNaN(d.getTime())) return '';
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      } catch {
+        return '';
+      }
+    };
+
+    const parseStockingCalendarDate = (dateVal) => {
+      if (!dateVal) return null;
+      if (typeof dateVal === 'string') {
+        const match = dateVal.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (match) {
+          const year = parseInt(match[1], 10);
+          const month = parseInt(match[2], 10) - 1;
+          const day = parseInt(match[3], 10);
+          return new Date(year, month, day);
+        }
+      }
+      const d = new Date(dateVal);
+      if (isNaN(d.getTime())) return null;
+      return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    };
+
+    const activeCrops = (crops || []).filter(
+      (c) => c.rawStatus === 'ACTIVE' || c.status === 'Active' || c.status === 'ACTIVE'
+    );
+
+    if (activeCrops.length === 0) {
+      return [];
+    }
+
+    return activeCrops.map((activeCrop) => {
+      const cropIdStr = String(activeCrop.id);
+      const tankIdStr = String(activeCrop.tankId || activeCrop.tank?.id || '');
+
+      const matchingTank = (tanks || []).find((t) => String(t.id) === tankIdStr);
+      const tankName = matchingTank?.tankName || matchingTank?.name || activeCrop.tankName || activeCrop.tank?.tankName || 'Tank';
+
+      const stockingDateObj = activeCrop.stockingDate ? new Date(activeCrop.stockingDate) : null;
+      const stockingDateFormatted = stockingDateObj && !isNaN(stockingDateObj.getTime())
+        ? stockingDateObj.toLocaleDateString('en-IN', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+          })
+        : '-';
+
+      // DOC Calculation: DOC = Current Date - Stocking Date (0 on stocking date)
+      const stockingCalendarDate = parseStockingCalendarDate(activeCrop.stockingDate);
+      let doc = 0;
+      if (stockingCalendarDate) {
+        const todayCalendarDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const diffMs = todayCalendarDate.getTime() - stockingCalendarDate.getTime();
+        doc = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+      }
+
+      const seedQtyNum = parseFloat(activeCrop.seedQuantity);
+      const seedFormatted = !isNaN(seedQtyNum) && seedQtyNum !== null && seedQtyNum !== undefined
+        ? seedQtyNum.toLocaleString('en-IN')
+        : '-';
+
+      const cropFeeds = (feedLogs || []).filter(
+        (f) => String(f.cropId || f.crop?.id || '') === cropIdStr
+      );
+
+      const yesterdayFeedKg = cropFeeds.reduce((sum, f) => {
+        const fDateStr = toYMD(f.feedingDate || f.date);
+        if (fDateStr === yesterdayStr) {
+          return sum + (parseFloat(f.quantityKg ?? f.quantity) || 0);
+        }
+        return sum;
+      }, 0);
+
+      const todayFeedKg = cropFeeds.reduce((sum, f) => {
+        const fDateStr = toYMD(f.feedingDate || f.date);
+        if (fDateStr === todayStr) {
+          return sum + (parseFloat(f.quantityKg ?? f.quantity) || 0);
+        }
+        return sum;
+      }, 0);
+
+      const totalFeedKg = cropFeeds.reduce((sum, f) => {
+        return sum + (parseFloat(f.quantityKg ?? f.quantity) || 0);
+      }, 0);
+
+      let feedBrand = '-';
+      if (cropFeeds.length > 0) {
+        const sortedFeeds = [...cropFeeds].sort((a, b) => {
+          const dA = new Date(a.date || a.feedingDate || 0);
+          const dB = new Date(b.date || b.feedingDate || 0);
+          return dB - dA;
+        });
+        feedBrand = sortedFeeds[0].feedBrand || sortedFeeds[0].feedType || '-';
+      }
+
+      return {
+        cropId: cropIdStr,
+        tankId: tankIdStr,
+        tankName,
+        stockingDateFormatted,
+        doc,
+        seedFormatted,
+        yesterdayFeedKg,
+        todayFeedKg,
+        totalFeedKg,
+        feedBrand,
+      };
+    });
+  }, [tanks, crops, feedLogs]);
 
   // Dynamic counts using real database context and backend stats fallback
   const totalTanksCount = tanks.length > 0 ? tanks.length : (stats.totalTanks ?? 0);
@@ -437,108 +565,77 @@ export default function Dashboard() {
         onClose={() => setIsActiveCropsReviewOpen(false)}
         title="Active Crop Batches Review"
         description="Currently active aquaculture crop culture batches running in farm tanks."
-        size="xl"
+        size="full"
       >
         <div className="space-y-4">
-          {activeCropsList.length > 0 ? (
-            <div className="space-y-3 max-h-[65vh] overflow-y-auto pr-1">
-              {activeCropsList.map((crop) => {
-                const stockingDateObj = crop.stockingDate ? new Date(crop.stockingDate) : null;
-                const daysRunning = stockingDateObj && !isNaN(stockingDateObj.getTime())
-                  ? Math.max(0, Math.floor((new Date() - stockingDateObj) / (1000 * 60 * 60 * 24)))
-                  : 0;
-
-                return (
-                  <div
-                    key={crop.id}
-                    className="p-4 rounded-xl bg-surface border border-border/80 shadow-2xs hover:border-emerald-500/40 transition-all space-y-3"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2.5">
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center font-bold">
-                          <Sprout className="w-4 h-4" />
+          {activeCropTableData.length > 0 ? (
+            <div className="overflow-x-auto rounded-xl border border-border/80 shadow-2xs aqua-scrollbar">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-primary/5 border-b border-border/80 text-text-secondary font-bold uppercase tracking-wider text-[10px] sm:text-[11px]">
+                    <th className="py-3 px-3.5 text-left whitespace-nowrap">TANK</th>
+                    <th className="py-3 px-3.5 text-left whitespace-nowrap">STOCKING DATE</th>
+                    <th className="py-3 px-3.5 text-center whitespace-nowrap">DOC</th>
+                    <th className="py-3 px-3.5 text-right whitespace-nowrap">SEED</th>
+                    <th className="py-3 px-3.5 text-right whitespace-nowrap">YESTERDAY</th>
+                    <th className="py-3 px-3.5 text-right whitespace-nowrap">TODAY</th>
+                    <th className="py-3 px-3.5 text-right whitespace-nowrap font-bold text-primary">TOTAL</th>
+                    <th className="py-3 px-3.5 text-left whitespace-nowrap">FEED BRAND</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/60 bg-surface">
+                  {activeCropTableData.map((row) => (
+                    <tr key={row.cropId} className="hover:bg-primary-50/30 transition-colors">
+                      <td className="py-3 px-3.5 font-bold text-text-primary whitespace-nowrap">
+                        <div className="flex items-center gap-2">
+                          <div className="w-7 h-7 rounded-lg bg-teal-50 text-teal-700 flex items-center justify-center font-bold text-xs shrink-0 border border-teal-200">
+                            <Waves className="w-3.5 h-3.5" />
+                          </div>
+                          <span>{row.tankName}</span>
                         </div>
-                        <div>
-                          <h4 className="font-bold text-sm text-text-primary">
-                            Batch #{crop.batchNumber || crop.cropName}
-                          </h4>
-                          <span className="text-[11px] text-text-secondary flex items-center gap-1">
-                            <Waves className="w-3 h-3 text-primary" /> {crop.tankName || crop.tank?.tankName || 'Tank'}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2">
+                      </td>
+                      <td className="py-3 px-3.5 text-text-primary whitespace-nowrap">
+                        {row.stockingDateFormatted}
+                      </td>
+                      <td className="py-3 px-3.5 text-center font-semibold whitespace-nowrap">
                         <Badge variant="primary" size="sm">
-                          Day {daysRunning} (DOC)
+                          {row.doc}
                         </Badge>
-                        <Badge variant="success" size="sm">
-                          Active
-                        </Badge>
-                      </div>
-                    </div>
-
-                    {/* Active Crop Attributes Grid */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                      <div className="p-2.5 rounded-lg bg-background border border-border/60">
-                        <span className="text-[10px] uppercase font-bold text-text-secondary block">
-                          Seed Variety
-                        </span>
-                        <span className="text-sm font-bold text-text-primary mt-0.5 block truncate">
-                          {crop.seedVariety || 'N/A'}
-                        </span>
-                      </div>
-
-                      <div className="p-2.5 rounded-lg bg-background border border-border/60">
-                        <span className="text-[10px] uppercase font-bold text-text-secondary block">
-                          Seed Quantity
-                        </span>
-                        <span className="text-sm font-bold text-emerald-700 mt-0.5 block">
-                          {crop.seedQuantity !== null && crop.seedQuantity !== undefined
-                            ? String(crop.seedQuantity)
-                            : 'N/A'}
-                        </span>
-                      </div>
-
-                      <div className="p-2.5 rounded-lg bg-background border border-border/60">
-                        <span className="text-[10px] uppercase font-bold text-text-secondary block">
-                          Stocking Date
-                        </span>
-                        <span className="text-sm font-semibold text-text-primary mt-0.5 block">
-                          {formatDate(crop.stockingDate)}
-                        </span>
-                      </div>
-
-                      <div className="p-2.5 rounded-lg bg-background border border-border/60">
-                        <span className="text-[10px] uppercase font-bold text-text-secondary block">
-                          Batch Number
-                        </span>
-                        <span className="text-sm font-semibold text-text-primary mt-0.5 block truncate">
-                          {crop.batchNumber || 'N/A'}
-                        </span>
-                      </div>
-                    </div>
-
-                    {crop.notes && (
-                      <div className="p-2.5 rounded-lg bg-background border border-border/60 text-xs">
-                        <span className="text-[10px] font-bold uppercase text-text-secondary block mb-0.5">
-                          Notes / Remarks
-                        </span>
-                        <p className="text-text-secondary">{crop.notes}</p>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                      </td>
+                      <td className="py-3 px-3.5 text-right font-medium text-text-primary whitespace-nowrap">
+                        {row.seedFormatted}
+                      </td>
+                      <td className="py-3 px-3.5 text-right font-medium text-text-secondary whitespace-nowrap">
+                        {row.yesterdayFeedKg} kg
+                      </td>
+                      <td className="py-3 px-3.5 text-right font-bold text-emerald-700 whitespace-nowrap">
+                        {row.todayFeedKg} kg
+                      </td>
+                      <td className="py-3 px-3.5 text-right font-bold text-primary whitespace-nowrap">
+                        {row.totalFeedKg} kg
+                      </td>
+                      <td className="py-3 px-3.5 text-text-primary whitespace-nowrap">
+                        {row.feedBrand !== '-' ? (
+                          <Badge variant="secondary" size="sm">
+                            {row.feedBrand}
+                          </Badge>
+                        ) : (
+                          <span className="text-text-secondary">-</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           ) : (
             <EmptyState
-              title="No Active Crops"
-              description="No active aquaculture crops are currently running in your farm tanks."
-              actionLabel="Register New Crop"
+              title="No Tanks or Active Crops Found"
+              description="No active culture batches are currently running in farm tanks."
+              actionLabel="Go to Stocking Management"
               onAction={() => {
                 setIsActiveCropsReviewOpen(false);
-                navigate('/crops');
+                navigate('/stocking');
               }}
             />
           )}
